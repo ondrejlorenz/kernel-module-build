@@ -10,6 +10,8 @@ RUN apt-get update && \
     flex \
     libelf-dev \
     libssl-dev \
+    mc \
+    bc \
     wget
 
 WORKDIR /usr/src/app
@@ -23,7 +25,8 @@ COPY include include/
 COPY build.sh .
 COPY load.sh .
 COPY workarounds.sh .
-RUN ./build.sh -s %%BALENA_MACHINE_NAME%% -v $OS_VERSION -i $SRC_DIR -o $OUT_DIR
+
+RUN ./build.sh -s genericx86-64-ext -v $OS_VERSION -i $SRC_DIR -o $OUT_DIR
 
 FROM alpine
 
@@ -37,7 +40,7 @@ ARG MOD_PATH=/opt/lib/modules/$OS_VERSION
 ENV MOD_PATH="$MOD_PATH"
 
 # Copy the built kernel module into your app
-COPY --from=kernel-build /usr/src/app/"$OUT_DIR"/"$SRC_DIR"_%%BALENA_MACHINE_NAME%%_"$OS_VERSION" "$MOD_PATH"
+COPY --from=kernel-build /usr/src/app/"$OUT_DIR"/"$SRC_DIR"_genericx86-64-ext_"$OS_VERSION" "$MOD_PATH"
 
 # Copy the startup script for loading the modules
 COPY --from=kernel-build /usr/src/app/load.sh /usr/src/app/load.sh
