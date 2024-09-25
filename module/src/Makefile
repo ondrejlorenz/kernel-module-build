@@ -1,9 +1,14 @@
-Q  :=  @
+KERNEL_TREE_PATH?=/lib/modules/$(shell uname -r)/build
+EXTRA_CFLAGS="-DDEBUG"
 
-all:
-	$(Q)cd driver && make
-	$(Q)cd utility && make
+obj-m+=hello.o
+
+all: hello.ko
+
+hello.ko: hello.c
+	make -C $(KERNEL_TREE_PATH) M=$(PWD) modules
 
 clean:
-	$(Q)cd driver && make clean
-	$(Q)cd utility && make clean
+	make -C $(KERNEL_TREE_PATH) M=$(PWD) clean
+
+.PHONY: all clean

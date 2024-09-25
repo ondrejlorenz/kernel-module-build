@@ -1,5 +1,5 @@
-FROM ubuntu:jammy-20220531 as kernel-build
-
+#FROM ubuntu:jammy-20220531 as kernel-build
+FROM ubuntu:jammy-20220531
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
@@ -10,8 +10,12 @@ RUN apt-get update && \
     flex \
     libelf-dev \
     libssl-dev \
+    curl \
     mc \
+    nano \
     bc \
+    kmod \
+    make \
     wget
 
 WORKDIR /usr/src/app
@@ -23,27 +27,36 @@ ARG OS_VERSION
 COPY src $SRC_DIR/
 COPY include include/
 COPY build.sh .
+COPY build2.sh .
+COPY build3.sh .
+COPY build4.sh .
+COPY build_app.sh .
+COPY buildmulti.sh .
+COPY buildmulti2.sh .
 COPY load.sh .
 COPY workarounds.sh .
+COPY utility/ utility/
+COPY driver/ driver/
 
-RUN ./build.sh -s genericx86-64-ext -v $OS_VERSION -i $SRC_DIR -o $OUT_DIR
 
-FROM alpine
-
-ARG SRC_DIR=src
-ARG OUT_DIR=out
-ARG OS_VERSION
+#builds emuc
+RUN ./build.sh -s %%BALENA_MACHINE_NAME%% -v $OS_VERSION -i /usr/src/app/driver -o $OUT_DIR/emuc
+#builds can_dev.ko
+RUN ./build2.sh -s %%BALENA_MACHINE_NAME%% -v $OS_VERSION -i driver -o $OUT_DIR/can-dev
+#builds can_dev_pci.ko
+RUN ./build3.sh -s %%BALENA_MACHINE_NAME%% -v $OS_VERSION -i driver -o $OUT_DIR/can-dev-pci
+#builds m_can.ko
+RUN ./build4.sh -s %%BALENA_MACHINE_NAME%% -v $OS_VERSION -i driver -o $OUT_DIR/m-can
+#builds app
+RUN ./build_app.sh -i /usr/src/app/utility/ -o /usr/src/app/out
 
 # Set the location for kernel modules
 ARG MOD_PATH=/opt/lib/modules/$OS_VERSION
 # Required for access when the container starts
 ENV MOD_PATH="$MOD_PATH"
 
-# Copy the built kernel module into your app
-COPY --from=kernel-build /usr/src/app/"$OUT_DIR"/"$SRC_DIR"_genericx86-64-ext_"$OS_VERSION" "$MOD_PATH"
 
-# Copy the startup script for loading the modules
-COPY --from=kernel-build /usr/src/app/load.sh /usr/src/app/load.sh
 
+RUN rm -rf /usr/src/app/$SRC_DIR /usr/src/app/linux-*
 # Start the script that loads the modules.
 ENTRYPOINT ["sh", "/usr/src/app/load.sh"]

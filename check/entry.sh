@@ -1,11 +1,19 @@
 #!/usr/bin/env sh
 
-if dmesg | grep -q "Hello World!"; then
-	echo "Module correctly loaded"
-else
-	echo "Something went wrong!"
-	exit 1
-fi
+check_module() {
+    local module_name="$1"
+    local module_number="$2"
+    if lsmod | grep -q "^$module_name"; then
+        echo "${module_number}/4 Module ${module_name}.ko correctly loaded"
+    else
+        echo "Something went wrong with ${module_name}.ko!"
+    fi
+}
 
-# A background sleep allows to handle signals
-exec /bin/sh -c "trap : TERM INT; sleep 9999999999d & wait"
+check_module "can_dev" "1"
+check_module "emuc2socketcan" "2"
+check_module "m_can" "3"
+check_module "m_can_pci" "4"
+
+# A background sleep allows handling signals
+exec /bin/sh -c "trap : TERM INT; sleep infinity & wait"

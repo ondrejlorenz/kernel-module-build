@@ -1,18 +1,26 @@
 version: '2'
 
+volumes:
+ data:
+
 services:
-  build:
+  load:
     build:
       context: ./module
       dockerfile: Dockerfile.template
       args:
         # Modify to the desired balenaOS version
-        OS_VERSION: 5.3.21+rev3
+        #OS_VERSION: 5.3.21+rev9
+        OS_VERSION: 6.0.33
     privileged: true
+    volumes:
+      - data:/usr/src/app/data
     restart: on-failure
   check:
     build:
       context: ./check
       dockerfile: Dockerfile.template
+    volumes:
+      - data:/usr/src/app/data
     depends_on:
-      - build
+      - load

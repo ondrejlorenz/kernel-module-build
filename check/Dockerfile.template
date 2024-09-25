@@ -1,5 +1,7 @@
 FROM alpine
 
 COPY entry.sh /usr/bin/entry.sh
+WORKDIR /usr/src/app
+COPY . . 
 
 ENTRYPOINT ["sh", "/usr/bin/entry.sh"]

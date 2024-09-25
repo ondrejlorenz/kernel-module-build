@@ -5,10 +5,13 @@ echo "OS Version is $OS_VERSION"
 # NOTE: some modules need to be loaded in a specific order
 # if that's the case, replace the loop below with a list of
 # `insmod $mod_dir/<module>.ko` commands in the right order
-for file in "$MOD_PATH"/*.ko; do
-	if lsmod | grep -q hello; then
-		rmmod hello
-	fi
-	echo Loading module from "$file"
-	insmod "$file"
-done
+cd /usr/src/app
+mkdir modules
+find ./out/ -name "*.ko" -exec cp {} ./modules/ \;
+
+insmod ./modules/can-dev.ko
+insmod ./modules/emuc2socketcan.ko
+insmod ./modules/m_can.ko
+insmod ./modules/m_can_pci.ko
+
+tail -f /dev/null

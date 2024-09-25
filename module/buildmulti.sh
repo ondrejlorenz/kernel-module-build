@@ -14,12 +14,12 @@ Usage: ${script_name} [OPTIONS]
 		-o Output directory (default to ./out)
 		-v balenaOS version (mandatory)
 		-s BalenaCloud slug name (mandatory)
+		-m Module paths (comma-separated, mandatory)
 		-h Display usage
 EOF
 }
 
-fetch_headers()
-{
+fetch_headers() {
 	local slug="${1}"
 	local version="${2}"
 	local files_url="https://files.balena-cloud.com"
@@ -36,7 +36,7 @@ fetch_headers()
 	tmp_path=$(mktemp --directory)
 	cd $tmp_path
 
-	if ! wget --quiet $(echo "$url" | sed -e 's/+/%2B/g'); then
+	if ! wget $(echo "$url" | sed -e 's/+/%2B/g'); then
 		fail "Could not find headers for '$slug' at version '$version'"
 	fi
 
@@ -51,12 +51,46 @@ fetch_headers()
 	echo "${tmp_path}"
 }
 
+fetch_vanilla_module() {
+	local version="${1}"
+	local module_path="${2}"
+	local files_url="https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x"
+	local filename="linux-${version}.tar.gz"
+	local url="${files_url}/${filename}"
+	local tmp_path=$(mktemp --directory)
+
+	cd $tmp_path
+
+	if ! wget "$url"; then
+		fail "Could not download vanilla kernel version '$version'"
+	fi
+
+	if ! tar -xf $filename; then
+		rm -rf "$tmp_path"
+		fail "Unable to extract $filename."
+	fi
+
+	local kernel_dir="${tmp_path}/linux-${version}"
+	local module_src="${kernel_dir}/${module_path}"
+	if [ ! -d "${module_src}" ]; then
+		rm -rf "$tmp_path"
+		fail "Module path '${module_src}' does not exist."
+	fi
+
+	echo "${module_src}"
+}
+
 build_module() {
 	local headers_dir="${1}"
 	local output_dir="${2}"
+	local module_src="${3}"
 
 	mkdir -p "${output_dir}"
 	cd "${output_dir}"
+
+	# Copy the vanilla module source to the output directory
+	cp -r "${module_src}"/* .
+
 	make -C "${headers_dir}" modules_prepare
 	make -C "${headers_dir}" M="$PWD" modules
 	rm -rf "$headers_dir"
@@ -67,6 +101,8 @@ main() {
 	local output_dir=
 	local os_version="${OS_VERSION}"
 	local slug=
+	local vanilla_version="5.15.150"
+	local module_paths=("drivers/net/can/dev" "drivers/net/can/m_can/m_can_pci" "drivers/net/can/m_can")
 
 	## Sanity checks
 	if [ ${#} -eq 0 ] ; then
@@ -99,7 +135,12 @@ main() {
 		mkdir -p "$output_dir"
 		cp -dR "$src_dir"/* "$output_dir"
 
-		build_module $(fetch_headers "${slug}" "${os_version}") "${output_dir}"
+		headers_dir=$(fetch_headers "${slug}" "${os_version}")
+
+		for module_path in "${module_paths[@]}"; do
+			module_src=$(fetch_vanilla_module "${vanilla_version}" "${module_path}")
+			build_module "${headers_dir}" "${output_dir}" "${module_src}"
+		done
 	fi
 }
 

@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+
+. include/logging
+
+set -o errexit
+set -o pipefail
+
+readonly script_name=$(basename "${0}")
+
+usage() {
+    cat <<EOF
+Usage: ${script_name} [OPTIONS]
+        -i Source directory (default to ./src)
+        -o Output directory (default to ./out)
+        -v balenaOS version (mandatory)
+        -s BalenaCloud slug name (mandatory)
+        -h Display usage
+EOF
+}
+
+fetch_headers() {
+    local slug="${1}"
+    local version="${2}"
+    local files_url="https://files.balena-cloud.com"
+    local esr_pattern="^[1-3][0-9]{3}\.(1|01|4|04|7|07||10)\.[0-9]*(.dev|.prod)?$"
+    local image_path="images"
+    local filename
+    local url
+    local headers_dir="kernel_headers"
+
+    mkdir -p $headers_dir
+    cd $headers_dir
+
+    if [[ ${version} =~ ${esr_pattern} ]]; then
+        image_path="esr-images"
+    fi
+
+    url="${files_url}/${image_path}/${slug}/${version//+/%2B}/kernel_modules_headers.tar.gz"
+
+    if ! wget $(echo "$url" | sed -e 's/+/%2B/g'); then
+        fail "Could not find headers for '$slug' at version '$version'"
+    fi
+
+    filename=$(basename $url)
+    strip_depth=$(tar tf ${filename} | grep "/\.config$" | tr -dc / | wc -c)
+    if ! tar -xf $filename --strip $strip_depth; then
+        rm -rf "$headers_dir"
+        fail "Unable to extract $headers_dir/$filename."
+    fi
+    /usr/src/app/workarounds.sh "${slug}" "${version}" "${headers_dir}"
+    cd -
+    echo "${headers_dir}"
+}
+
+fetch_vanilla_kernel() {
+    local version="${1}"
+    local files_url="https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x"
+    local filename="linux-${version}.tar.gz"
+    local url="${files_url}/${filename}"
+    local kernel_dir="linux-${version}"
+
+    mkdir -p $kernel_dir
+    cd $kernel_dir
+
+    if ! wget "$url"; then
+        fail "Could not download vanilla kernel version '$version'"
+    fi
+
+    if ! tar -xf $filename; then
+        rm -rf "$kernel_dir"
+        fail "Unable to extract $filename."
+    fi
+
+    cd -
+    echo "${kernel_dir}"
+}
+
+modify_makefile() {
+    local module_dir="${1}"
+    local makefile="${module_dir}/Makefile"
+
+    if [ -f "${makefile}" ]; then
+        echo "Modifying Makefile in ${module_dir}"
+        sed -i 's/^obj-\$(CONFIG_/obj-m +=/g' "${makefile}"
+        echo "Modified Makefile in ${module_dir}"
+    else
+        fail "Makefile in ${module_dir} does not exist."
+    fi
+}
+
+build_module() {
+    local headers_dir="${1}"
+    local output_dir="${2}"
+    local module_src="${3}"
+
+    mkdir -p "${output_dir}"
+    cd "${output_dir}"
+
+    cp -r "${module_src}"/* .
+
+    make -C "${headers_dir}" modules_prepare
+    make -C "${headers_dir}" M="$PWD" modules
+}
+
+main() {
+    local src_dir=
+    local output_dir=
+    local os_version="${OS_VERSION}"
+    local slug=
+    local vanilla_version="5.15.150"
+    local kernel_src
+    local module_paths=("drivers/net/can/dev" "drivers/net/can/m_can")
+
+    ## Sanity checks
+    if [ ${#} -eq 0 ] ; then
+        usage
+        exit 1
+    else
+        while getopts "hi:o:v:s:" c; do
+            case "${c}" in
+                i) src_dir="${OPTARG:-}";;
+                o) output_dir="${OPTARG:-}";;
+                v) os_version="${OPTARG:-}";;
+                s) slug="${OPTARG:-}";;
+                h) usage;;
+                *) usage;exit 1;;
+            esac
+        done
+
+        [ -z "${src_dir}" ] && fail "No module source directory provided"
+        [ -z "${output_dir}" ] && fail "No output directory provided"
+        [ -z "${os_version}" ] && fail "No OS versions specified"
+        [ -z "${slug}" ] && fail "No slugs specified"
+
+        output_dir="${output_dir}/${src_dir}_${slug}_${os_version}"
+        info "Building source from ${src_dir} into ${output_dir} for:
+            OS versions: ${os_version}
+            Device types: ${slug}"
+
+        rm -rf "$output_dir"
+        mkdir -p "$output_dir"
+        cp -dR "$src_dir"/* "$output_dir"
+
+        headers_dir=$(fetch_headers "${slug}" "${os_version}")
+        kernel_src=$(fetch_vanilla_kernel "${vanilla_version}")
+
+        for module_path in "${module_paths[@]}"; do
+            module_src="${kernel_src}/${module_path}"
+            modify_makefile "${module_src}"
+            build_module "${headers_dir}" "${output_dir}" "${module_src}"
+        done
+    fi
+}
+
+main "${@}"
